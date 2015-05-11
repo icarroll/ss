@@ -259,12 +259,13 @@ def collect(mem):
     mark(mem)
 
     new_next = compute_forwards(mem)
-    mem(24)[HEAP_ROOT] = block_forward(mem, mem(24)[HEAP_ROOT])
+    new_root = block_forward(mem, mem(24)[HEAP_ROOT])
 
     update_pointers(mem)
 
     compact(mem)
     mem(24)[HEAP_NEXT] = new_next
+    mem(24)[HEAP_ROOT] = new_root
 
 def mark(mem):
     """
@@ -473,7 +474,7 @@ def show_all_heap(mem):
         size = block_size(mem, block_addr)
 
         fmt = ("0x{:06x}: forward=0x{:06x} flags=0x{:02x} (kind={!s:.1}"
-               " marked={!s:.1}) size=0x{:06x}")
+               " marked={!s:.1}) size={}")
         print(fmt.format(block_addr, forward, flags, kind, marked, size))
 
         if kind is POINTER_BLOCK:
@@ -483,7 +484,7 @@ def show_all_heap(mem):
                     new_block_addr = mem(24)[addr+1]
                     if new_block_addr == 0:
                         continue
-                    print("    {:06x}".format(new_block_addr))
+                    print("  {:8}: 0x{:06x}".format(addr-block_addr, new_block_addr))
 
         block_addr += _HEADER_SIZE + size
 
@@ -503,7 +504,7 @@ def show_live_heap(mem):
         size = block_size(mem, block_addr)
 
         fmt = ("0x{:06x}: forward=0x{:06x} flags=0x{:02x} (kind={!s:.1}"
-               " marked={!s:.1}) size=0x{:06x}")
+               " marked={!s:.1}) size={}")
         print(fmt.format(block_addr, forward, flags, kind, marked, size))
 
         if kind is POINTER_BLOCK:
@@ -513,7 +514,7 @@ def show_live_heap(mem):
                     new_block_addr = mem(24)[addr+1]
                     if new_block_addr == 0:
                         continue
-                    print("    {:06x}".format(new_block_addr))
+                    print("  {:8}: {:06x}".format(addr-block_addr, new_block_addr))
 
 def log(level, msg, *args):
     if LOG >= level:
@@ -528,12 +529,25 @@ def debug(type, value, tb):
 def frob():
     mem = Memory(2**12)
     init_heap(mem, 256, 2**12-256)
+    
+    while random_mutation(mem):
+       pass
 
     show_all_heap(mem)
     print()
 
-    collect(mem)
+    mark(mem)
     show_all_heap(mem)
+    print()
+    
+    compute_forwards(mem)
+    show_all_heap(mem)
+    print()
+    
+    update_pointers(mem)
+    show_all_heap(mem)
+    print()
+
 
 if __name__ == "__main__":
     if "-d" in sys.argv:
