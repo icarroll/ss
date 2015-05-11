@@ -49,7 +49,6 @@ def Memory(size):
             self.bits = bits
 
         def __setitem__(self, key, value):
-            log(2, "{0}: 0x{1:06x} <- 0x{2:0{3}x}".format(self.bits, key, value, self.bits//4))
             nbytes = self.bits // 8
             for ix in range(nbytes):
                 self.memory[key+ix] = value % 256
@@ -299,7 +298,6 @@ def mark(mem):
     """
     for block_addr in trace_heap(mem):
         mark_block(mem, block_addr)
-        log(1, "marked", block_addr)
 
 def compute_forwards(mem):
     """
@@ -320,26 +318,21 @@ def compute_forwards(mem):
     """
     next_free_addr = mem(24)[HEAP_START]
     for block_addr in scan_heap(mem):
-        log(1, "computing forward", block_addr)
         if block_marked(mem, block_addr):
             new_addr = next_free_addr + _HEADER_SIZE
             set_block_forward(mem, block_addr, new_addr)
-            log(1, "forward", block_addr, next_free_addr+_HEADER_SIZE)
             next_free_addr = new_addr + block_size(mem, block_addr)
 
-    log(1, "new next", next_free_addr)
     return next_free_addr
 
 def update_pointers(mem):
     for block_addr in scan_heap(mem):
         if not block_marked(mem, block_addr):
             continue
-        log(1, "updating pointers", block_addr)
         kind = block_kind(mem, block_addr)
         if kind is POINTER_BLOCK:
             for addr, pointer in block_pointers(mem, block_addr):
                 mem(24)[addr+1] = block_forward(mem, pointer)
-                log(1, "update", block_addr, addr, pointer)
 
 def compact(mem):
     for old_addr in scan_heap(mem):
@@ -350,12 +343,9 @@ def compact(mem):
         size = block_size(mem, old_addr)
         for ix in range(-_HEADER_SIZE, size):
             mem[new_addr+ix] = mem[old_addr+ix]
-        log(1, "compact", old_addr, new_addr)
 
         set_block_forward(mem, new_addr, 0)
-        log(1, "zero forward", new_addr)
         unmark_block(mem, new_addr)
-        log(1, "unmark", new_addr)
 
 def heap_ok(mem):
     """
@@ -496,69 +486,15 @@ def show_heap(mem, traverse=scan_heap):
 
     return msg.getvalue()
 
-def log(level, msg, *args):
-    if LOG[0] >= level:
-        print(msg, *("{:06x}".format(arg) for arg in args))
-
 def debug(type, value, tb):
     import traceback, pdb
     traceback.print_exception(type, value, tb)
     print()
     pdb.pm()
 
-def frob():
-    while True:
-        mem = Memory(2**12)
-        init_heap(mem, 256, 2**12-256)
-        
-        while random_mutation(mem):
-            pass
-        copy = mem.copy()
-        show1 = show_heap(mem, scan_heap)
-
-
-        before = sorted((block_kind(mem, addr), block_size(mem, addr))
-                        for addr in trace_heap(mem))
-
-        mark(mem)
-        show2 = show_heap(mem, scan_heap)
-
-        new_next = compute_forwards(mem)
-        new_root = block_forward(mem, mem(24)[HEAP_ROOT])
-        show3 = show_heap(mem, scan_heap)
-
-        update_pointers(mem)
-        show4 = show_heap(mem, scan_heap)
-
-        compact(mem)
-        mem(24)[HEAP_NEXT] = new_next
-        mem(24)[HEAP_ROOT] = new_root
-        show5 = show_heap(mem, scan_heap)
-
-        after = sorted((block_kind(mem, addr), block_size(mem, addr))
-                       for addr in trace_heap(mem))
-
-        print(".", end="")
-        sys.stdout.flush()
-
-        '''
-        if before != after:
-            print()
-            import pdb
-            pdb.set_trace()
-        '''
-
-LOG = [0]
 if __name__ == "__main__":
     if "-d" in sys.argv:
         sys.excepthook = debug
-
-    if "-l" in sys.argv:
-        LOG[0] = 1
-    elif "-ll" in sys.argv:
-        LOG[0] = 2
-    else:
-        LOG[0] = 0
 
     if "-t" in sys.argv:
         import doctest
@@ -566,4 +502,4 @@ if __name__ == "__main__":
         if not fails:
             print("OK")
     else:
-        frob()
+        pass
