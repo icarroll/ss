@@ -1,5 +1,5 @@
 # TODO:
-# change traverse_heap to use pointer reversal
+# change trace_heap to use pointer reversal
 
 # MAYBE:
 # bounds check init_heap
@@ -219,7 +219,7 @@ def block_size(mem, addr):
 def set_block_size(mem, addr, size):
     mem(24)[addr-3] = size
 
-def traverse_heap(mem):   # generator
+def trace_heap(mem):   # generator
     root_addr = mem(24)[HEAP_ROOT]
 
     seen_addrs = set([root_addr])
@@ -248,10 +248,10 @@ def collect(mem):
     >>> while random_mutation(mem):
     ...     pass
     >>> before = sorted((block_kind(mem, addr), block_size(mem, addr))
-    ...                 for addr in traverse_heap(mem))
+    ...                 for addr in trace_heap(mem))
     >>> collect(mem)
     >>> after = sorted((block_kind(mem, addr), block_size(mem, addr))
-    ...                for addr in traverse_heap(mem))
+    ...                for addr in trace_heap(mem))
     >>> before == after
     True
     >>> heap_check(mem)
@@ -274,13 +274,13 @@ def mark(mem):
     >>> while random_mutation(mem):
     ...     pass
 
-    >>> any(block_marked(mem, addr) for addr in traverse_heap(mem))
+    >>> any(block_marked(mem, addr) for addr in trace_heap(mem))
     False
     >>> mark(mem)
-    >>> all(block_marked(mem, addr) for addr in traverse_heap(mem))
+    >>> all(block_marked(mem, addr) for addr in trace_heap(mem))
     True
     """
-    for block_addr in traverse_heap(mem):
+    for block_addr in trace_heap(mem):
         mark_block(mem, block_addr)
         log(1, "marked", block_addr)
 
@@ -317,7 +317,7 @@ def compute_forwards(mem):
     return free_addr
 
 def update_pointers(mem):
-    for block_addr in traverse_heap(mem):
+    for block_addr in trace_heap(mem):
         log(1, "updating pointers", block_addr)
         kind = block_kind(mem, block_addr)
         if kind is POINTER_BLOCK:
@@ -331,7 +331,7 @@ def update_pointers(mem):
                         log(1, "update", block_addr, addr, pointer)
 
 def compact(mem):
-    for block_addr in sorted(traverse_heap(mem)):
+    for block_addr in sorted(trace_heap(mem)):
         forward = block_forward(mem, block_addr)
         for ix in range(-_HEADER_SIZE, block_size(mem, block_addr)):
             mem[forward+ix] = mem[block_addr+ix]
@@ -378,7 +378,7 @@ def heap_check(mem):
     if not mem(24)[HEAP_START] <= root_addr < mem(24)[HEAP_END]:
         raise HeapError("Heap root address {0} outside of heap".format(root_addr))
 
-    for block_addr in traverse_heap(mem):
+    for block_addr in trace_heap(mem):
         size = block_size(mem, block_addr)
         if not (mem(24)[HEAP_START] + _HEADER_SIZE
                 <= block_addr
@@ -409,9 +409,9 @@ def random_block(mem, only_pointer_blocks=False):
         def is_pointer(addr):
             return block_kind(mem, addr) is POINTER_BLOCK
 
-        block_addrs = filter(is_pointer, traverse_heap(mem))
+        block_addrs = filter(is_pointer, trace_heap(mem))
     else:
-        block_addrs = traverse_heap(mem)
+        block_addrs = trace_heap(mem)
 
     chosen = next(block_addrs)
     count = 1
@@ -496,7 +496,7 @@ def show_live_heap(mem):
     print("start=0x{0:06x} root=0x{1:06x} next=0x{2:06x} end=0x{3:06x}"
           .format(heap_start, heap_root, heap_next, heap_end))
 
-    for block_addr in traverse_heap(mem):
+    for block_addr in trace_heap(mem):
         forward = block_forward(mem, block_addr)
         flags = block_flags(mem, block_addr)
         kind = block_kind(mem, block_addr)
