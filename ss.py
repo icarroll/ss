@@ -219,6 +219,15 @@ def block_size(mem, addr):
 def set_block_size(mem, addr, size):
     mem(24)[addr-3] = size
 
+def block_pointers(mem, block_addr):   # generator
+    size = block_size(mem, block_addr)
+    for addr in range(block_addr, block_addr+size-size%4, 4):
+        tag = mem[addr]
+        if tag == 0:
+            pointer = mem(24)[addr+1]
+            if pointer:
+                yield (addr, pointer)
+
 def trace_heap(mem):   # generator
     root_addr = mem(24)[HEAP_ROOT]
 
@@ -230,16 +239,20 @@ def trace_heap(mem):   # generator
 
         kind = block_kind(mem, block_addr)
         if kind is POINTER_BLOCK:
-            size = block_size(mem, block_addr)
-            for addr in range(block_addr, block_addr+size-size%4, 4):
-                new_block_tag = mem[addr]
-                if new_block_tag == 0:
-                    new_block_addr = mem(24)[addr+1]
-                    if new_block_addr == 0:
-                        continue
-                    if new_block_addr not in seen_addrs:
-                        block_addrs.append(new_block_addr)
-                        seen_addrs.add(new_block_addr)
+            for _, pointer in block_pointers(mem, block_addr):
+                if pointer not in seen_addrs:
+                    block_addrs.append(pointer)
+                    seen_addrs.add(pointer)
+
+def scan_heap(mem):   # generator
+    heap_start = mem(24)[HEAP_START]
+    heap_next = mem(24)[HEAP_NEXT]
+
+    block_addr = heap_start + _HEADER_SIZE
+    while block_addr < heap_next:
+        yield block_addr
+        size = block_size(mem, block_addr)
+        block_addr += _HEADER_SIZE + size
 
 def collect(mem):
     """
@@ -321,19 +334,18 @@ def update_pointers(mem):
         log(1, "updating pointers", block_addr)
         kind = block_kind(mem, block_addr)
         if kind is POINTER_BLOCK:
-            size = block_size(mem, block_addr)
-            for addr in range(block_addr, block_addr+size-size%4, 4):
-                tag = mem[addr]
-                if tag == 0:
-                    pointer = mem(24)[addr+1]
-                    if pointer:
-                        mem(24)[addr+1] = block_forward(mem, pointer)
-                        log(1, "update", block_addr, addr, pointer)
+            for addr, pointer in block_pointers(mem, block_addr):
+                mem(24)[addr+1] = block_forward(mem, pointer)
+                log(1, "update", block_addr, addr, pointer)
 
 def compact(mem):
-    for block_addr in sorted(trace_heap(mem)):
+    for block_addr in scan_heap(mem):
+        if not block_marked(mem, block_addr):
+            continue
+
         forward = block_forward(mem, block_addr)
-        for ix in range(-_HEADER_SIZE, block_size(mem, block_addr)):
+        size = block_size(mem, block_addr)
+        for ix in range(-_HEADER_SIZE, size):
             mem[forward+ix] = mem[block_addr+ix]
         log(1, "compact", block_addr, forward)
 
@@ -395,14 +407,9 @@ def heap_check(mem):
         if kind is not POINTER_BLOCK:
             raise HeapError("Block at {0} has invalid kind {1}.".format(block_addr, kind))
 
-        for addr in range(block_addr, block_addr+size-size%4, 4):
-            new_block_tag = mem[addr]
-            if new_block_tag == 0:
-                new_block_addr = mem(24)[addr+1]
-                if new_block_addr == 0:
-                    continue
-                if not mem.valid(new_block_addr):
-                    raise HeapError("Block at {0} offset {1} points outside memory.".format(block_addr, block_addr-addr))
+        for _, pointer in block_pointers(mem, block_addr):
+            if not mem.valid(pointer):
+                raise HeapError("Block at {0} offset {1} points outside memory.".format(block_addr, block_addr-addr))
 
 def random_block(mem, only_pointer_blocks=False):
     if only_pointer_blocks:
@@ -457,7 +464,7 @@ def random_mutation(mem):
 
     return True
 
-def show_all_heap(mem):
+def show_heap(mem, traverse):
     heap_start = mem(24)[HEAP_START]
     heap_root = mem(24)[HEAP_ROOT]
     heap_next = mem(24)[HEAP_NEXT]
@@ -465,8 +472,7 @@ def show_all_heap(mem):
     print("start=0x{0:06x} root=0x{1:06x} next=0x{2:06x} end=0x{3:06x}"
           .format(heap_start, heap_root, heap_next, heap_end))
 
-    block_addr = heap_start + _HEADER_SIZE
-    while block_addr < heap_next:
+    for block_addr in traverse(mem):
         forward = block_forward(mem, block_addr)
         flags = block_flags(mem, block_addr)
         kind = block_kind(mem, block_addr)
@@ -478,43 +484,8 @@ def show_all_heap(mem):
         print(fmt.format(block_addr, forward, flags, kind, marked, size))
 
         if kind is POINTER_BLOCK:
-            for addr in range(block_addr, block_addr+size-size%4, 4):
-                new_block_tag = mem[addr]
-                if new_block_tag == 0:
-                    new_block_addr = mem(24)[addr+1]
-                    if new_block_addr == 0:
-                        continue
-                    print("  {:8}: 0x{:06x}".format(addr-block_addr, new_block_addr))
-
-        block_addr += _HEADER_SIZE + size
-
-def show_live_heap(mem):
-    heap_start = mem(24)[HEAP_START]
-    heap_root = mem(24)[HEAP_ROOT]
-    heap_next = mem(24)[HEAP_NEXT]
-    heap_end = mem(24)[HEAP_END]
-    print("start=0x{0:06x} root=0x{1:06x} next=0x{2:06x} end=0x{3:06x}"
-          .format(heap_start, heap_root, heap_next, heap_end))
-
-    for block_addr in trace_heap(mem):
-        forward = block_forward(mem, block_addr)
-        flags = block_flags(mem, block_addr)
-        kind = block_kind(mem, block_addr)
-        marked = block_marked(mem, block_addr)
-        size = block_size(mem, block_addr)
-
-        fmt = ("0x{:06x}: forward=0x{:06x} flags=0x{:02x} (kind={!s:.1}"
-               " marked={!s:.1}) size={}")
-        print(fmt.format(block_addr, forward, flags, kind, marked, size))
-
-        if kind is POINTER_BLOCK:
-            for addr in range(block_addr, block_addr+size-size%4, 4):
-                new_block_tag = mem[addr]
-                if new_block_tag == 0:
-                    new_block_addr = mem(24)[addr+1]
-                    if new_block_addr == 0:
-                        continue
-                    print("  {:8}: {:06x}".format(addr-block_addr, new_block_addr))
+            for addr, pointer in block_pointers(mem, block_addr):
+                print("  {:8}: 0x{:06x}".format(addr-block_addr, pointer))
 
 def log(level, msg, *args):
     if LOG >= level:
@@ -533,19 +504,19 @@ def frob():
     while random_mutation(mem):
        pass
 
-    show_all_heap(mem)
+    show_heap(mem, scan_heap)
     print()
 
     mark(mem)
-    show_all_heap(mem)
+    show_heap(mem, scan_heap)
     print()
     
     compute_forwards(mem)
-    show_all_heap(mem)
+    show_heap(mem, scan_heap)
     print()
     
     update_pointers(mem)
-    show_all_heap(mem)
+    show_heap(mem, scan_heap)
     print()
 
 
