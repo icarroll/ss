@@ -46,6 +46,9 @@ def Memory(size):
             else:
                 return Memory(self.memory, bits)
 
+        def __len__(self):
+            return len(self.memory)
+
         def valid(self, addr):
             return 0 <= addr < len(self.memory) - 1 + self.bits // 8
 
@@ -60,6 +63,9 @@ HEAP_END = 6
 HEAP_ROOT = 9
 _INITIAL_ROOT_SIZE = 40
 def init_heap(mem, start, size):
+    if start + size > len(mem):
+        raise HeapError("Heap size {0} exceeds memory size.".format(size))
+
     mem(24)[HEAP_NEXT] = start
     mem(24)[HEAP_START] = start
     mem(24)[HEAP_END] = start + size

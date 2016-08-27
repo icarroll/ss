@@ -154,3 +154,17 @@ True
 ...   pass
 >>> heap_ok(mem)
 True
+
+
+>>> size = 256
+>>> mem = Memory(size) ; init_heap(mem, 256, size)
+Traceback (most recent call last):
+...
+ss.HeapError: Heap size 256 exceeds memory size.
+
+
+>>> size = 256
+>>> mem = Memory(size) ; init_heap(mem, 8, size)
+Traceback (most recent call last):
+...
+ss.HeapError: Heap size 256 exceeds memory size.
